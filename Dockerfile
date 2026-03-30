@@ -49,6 +49,11 @@ RUN apt-get update \
     tini \
     python3 \
     python3-venv \
+    curl \
+    git \
+    file \
+    procps \
+    build-essential \
   && rm -rf /var/lib/apt/lists/*
 
 # `openclaw update` expects pnpm. Provide it in the runtime image.
@@ -61,7 +66,21 @@ ENV NPM_CONFIG_PREFIX=/data/npm
 ENV NPM_CONFIG_CACHE=/data/npm-cache
 ENV PNPM_HOME=/data/pnpm
 ENV PNPM_STORE_DIR=/data/pnpm-store
-ENV PATH="/data/npm/bin:/data/pnpm:${PATH}"
+
+# Install Homebrew in the supported Linux prefix as a non-root user.
+RUN mkdir -p /home/linuxbrew/.linuxbrew \
+  && chown -R node:node /home/linuxbrew
+
+USER node
+ENV NONINTERACTIVE=1
+RUN bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/data/npm/bin:/data/pnpm:${PATH}"
+
+# Install gogcli for the OpenClaw gog skill.
+RUN brew tap steipete/tap && brew install gogcli
+
+USER root
 
 WORKDIR /app
 
@@ -78,12 +97,7 @@ RUN printf '%s\n' '#!/usr/bin/env bash' 'exec node /openclaw/dist/entry.js "$@"'
 
 COPY src ./src
 
-# The wrapper listens on $PORT.
-# IMPORTANT: Do not set a default PORT here.
-# Railway injects PORT at runtime and routes traffic to that port.
-# If we force a different port, deployments can come up but the domain will route elsewhere.
 EXPOSE 8080
 
-# Ensure PID 1 reaps zombies and forwards signals.
 ENTRYPOINT ["tini", "--"]
 CMD ["node", "src/server.js"]
